@@ -35,6 +35,8 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
   }
 }
 
+seq(bintrayResolverSettings:_*)
+
 // General Dependencies
 libraryDependencies ++= Seq(
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.1",
@@ -53,10 +55,11 @@ libraryDependencies ++= Seq(
     exclude("org.apache.zookeeper", "zookeeper")
     exclude("org.slf4j", "log4j-over-slf4j"),
   "org.apache.zookeeper" % "zookeeper" % "3.4.6",
+  "org.fusesource.jansi" % "jansi" % "1.11",
   "org.mongodb" %% "casbah-commons" % "2.6.4",
   "org.mongodb" %% "casbah-core" % "2.6.4",
-  "org.fusesource.jansi" % "jansi" % "1.11",
   "org.slf4j" % "slf4j-api" % "1.7.7",
+  "org.clapper" %% "classutil" % "1.0.4",
   "net.databinder.dispatch" %% "dispatch-core" % "0.11.2"
 )
 
@@ -75,6 +78,7 @@ resolvers ++= Seq(
   "Clojure Releases" at "http://build.clojure.org/releases/",
   "GPhat" at "https://raw.github.com/gphat/mvn-repo/master/releases/",
   "Java Net" at "http://download.java.net/maven/2/",
+  "JCenter" at "http://jcenter.bintray.com/",
   "Maven Central Server" at "http://repo1.maven.org/maven2",
   "Sonatype Repository" at "http://oss.sonatype.org/content/repositories/releases/",
   "Typesafe Releases Repository" at "http://repo.typesafe.com/typesafe/releases/",
@@ -82,3 +86,5 @@ resolvers ++= Seq(
 )
 
 resolvers += Resolver.file("Local repo", file(System.getProperty("user.home") + "/.ivy2/local"))(Resolver.ivyStylePatterns)
+
+resolvers += bintray.Opts.resolver.repo("bmc", "maven")

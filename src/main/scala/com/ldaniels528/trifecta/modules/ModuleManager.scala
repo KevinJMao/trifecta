@@ -1,8 +1,11 @@
 package com.ldaniels528.trifecta.modules
 
-import com.ldaniels528.trifecta.TxRuntimeContext
+import java.io.{File, FilenameFilter}
+
 import com.ldaniels528.trifecta.command.Command
 import com.ldaniels528.trifecta.util.OptionHelper._
+import com.ldaniels528.trifecta.{TxConfig, TxRuntimeContext}
+import org.clapper.classutil.{ClassFinder, ClassInfo}
 
 /**
  * Module Manager
@@ -92,6 +95,29 @@ class ModuleManager()(implicit rt: TxRuntimeContext) {
   private def updateCollections(): Unit = {
     // update the command collection
     commands = Map(moduleSet.toSeq flatMap (_.getCommands map (c => (c.name, c))): _*)
+  }
+
+}
+
+object ModuleManager {
+
+  private val moduleClassName = classOf[Module].getName
+
+  def loadExternalModules(config: TxConfig): Option[Iterator[ClassInfo]] = {
+    for {
+      homePath <- Option(System.getenv("TRIFECTA_HOME"))
+      homeDir = new File(s"$homePath/lib")
+      jarFiles <- Option(homeDir.listFiles(new FilenameFilter {
+        override def accept(dir: File, name: String): Boolean = name.endsWith(".jar")
+      })) if homeDir.exists()
+      _ = jarFiles.foreach(s => println(s"jar: $s"))
+      finder = ClassFinder(jarFiles) if jarFiles.nonEmpty
+      classInfo = finder.getClasses().filter(c => c.isConcrete && c.implements(moduleClassName))
+      _ = classInfo.foreach(s => println(s"modules: $s"))
+     // classes = ClassFinder.concreteSubclasses(moduleClassName, classInfo)
+    //instances = classes map { ci =>  ci.}
+
+    } yield classInfo
   }
 
 }

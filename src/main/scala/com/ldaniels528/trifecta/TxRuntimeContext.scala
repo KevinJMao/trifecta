@@ -29,14 +29,18 @@ case class TxRuntimeContext(config: TxConfig)(implicit ec: ExecutionContext) {
   // create the module manager
   val moduleManager = new ModuleManager()(this)
 
+  // load the external modules
+  //val externalModules = ModuleManager.loadExternalModules(config)
+  //externalModules.foreach(println)
+
   // load the built-in modules
   moduleManager ++= Seq(
-    new CassandraModule(config),
+//  new CassandraModule(config),
     new CoreModule(config),
-    new ElasticSearchModule(config),
+//  new ElasticSearchModule(config),
     new KafkaModule(config),
-    new MongoModule(config),
-    new StormModule(config),
+//  new MongoModule(config),
+//  new StormModule(config),
     new ZookeeperModule(config))
 
   // set the "active" module
