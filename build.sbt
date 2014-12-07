@@ -11,7 +11,7 @@ name := "trifecta"
 
 organization := "com.ldaniels528"
 
-version := "0.18.1"
+version := "0.18.2"
 
 scalaVersion := "2.10.4"
 
@@ -39,7 +39,6 @@ seq(bintrayResolverSettings:_*)
 
 // General Dependencies
 libraryDependencies ++= Seq(
-  "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.1",
   "com.101tec" % "zkclient" % "0.4",
   "com.twitter" %% "bijection-core" % "0.7.0",
   "com.twitter" %% "bijection-avro" % "0.7.0",

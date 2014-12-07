@@ -5,7 +5,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 
 import _root_.kafka.common.TopicAndPartition
-import com.ldaniels528.trifecta.TxResultHandler.Ok
+import com.ldaniels528.trifecta.DefaultResultHandler.Ok
 import com.ldaniels528.trifecta.command._
 import com.ldaniels528.trifecta.io.AsyncIO.IOCounter
 import com.ldaniels528.trifecta.io.avro.AvroConversion._

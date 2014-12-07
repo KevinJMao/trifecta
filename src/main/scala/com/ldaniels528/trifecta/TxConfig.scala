@@ -20,6 +20,7 @@ import scala.util.{Failure, Success, Try}
  */
 class TxConfig(val configProps: Properties) {
   private lazy val logger = LoggerFactory.getLogger(getClass)
+  private var resultHandlers: List[TxResultHandler] = Nil
 
   // set the current working directory
   configProps.setProperty("trifecta.common.cwd", new File(".").getCanonicalPath)
@@ -64,6 +65,20 @@ class TxConfig(val configProps: Properties) {
   def zooKeeperConnect = configProps.getOrElse("trifecta.zookeeper.host", "localhost:2181")
 
   def zooKeeperConnect_=(connectionString: String) = configProps.setProperty("trifecta.zookeeper.host", connectionString)
+
+  /**
+   * Retrieves the list of result handlers
+   * @return the [[List]] of [[TxResultHandler]]
+   */
+  def getResultHandlers: List[TxResultHandler] = resultHandlers
+
+  /**
+   * Adds a result handler to the configuration
+   * @param handler the given [[TxResultHandler]]
+   */
+  def addResultHandler(handler: TxResultHandler): Unit = {
+    resultHandlers = handler :: resultHandlers
+  }
 
   /**
    * Returns all available decoders
@@ -175,6 +190,12 @@ object TxConfig {
    * @return the default configuration
    */
   def defaultConfig: TxConfig = new TxConfig(getDefaultProperties)
+
+  /**
+   * Returns the location of the module configuration properties
+   * @return the [[File]] representing the location of module configuration properties
+   */
+  def moduleConfigFile: File = new File(trifectaPrefs, "modules.properties")
 
   /**
    * Loads the configuration file

@@ -1,11 +1,16 @@
 package com.ldaniels528.trifecta.modules
 
-import java.io.{File, FilenameFilter}
+import java.io.{File, FileInputStream}
+import java.util.Properties
 
 import com.ldaniels528.trifecta.command.Command
 import com.ldaniels528.trifecta.util.OptionHelper._
+import com.ldaniels528.trifecta.util.ResourceHelper._
 import com.ldaniels528.trifecta.{TxConfig, TxRuntimeContext}
-import org.clapper.classutil.{ClassFinder, ClassInfo}
+import org.slf4j.LoggerFactory
+
+import scala.collection.JavaConversions._
+import scala.util.{Failure, Success, Try}
 
 /**
  * Module Manager
@@ -100,24 +105,42 @@ class ModuleManager()(implicit rt: TxRuntimeContext) {
 }
 
 object ModuleManager {
+  private val logger = LoggerFactory.getLogger(getClass)
 
-  private val moduleClassName = classOf[Module].getName
+  def loadExternalModules(config: TxConfig, moduleConfigFile: File): List[Module] = {
+    if (!moduleConfigFile.exists) {
+      logger.info(s"Module file '${moduleConfigFile.getAbsolutePath}' not found. No external modules loaded.")
+      Nil
+    }
+    else Try {
+      new FileInputStream(moduleConfigFile) use { in =>
+        val props = new Properties()
+        props.load(in)
 
-  def loadExternalModules(config: TxConfig): Option[Iterator[ClassInfo]] = {
-    for {
-      homePath <- Option(System.getenv("TRIFECTA_HOME"))
-      homeDir = new File(s"$homePath/lib")
-      jarFiles <- Option(homeDir.listFiles(new FilenameFilter {
-        override def accept(dir: File, name: String): Boolean = name.endsWith(".jar")
-      })) if homeDir.exists()
-      _ = jarFiles.foreach(s => println(s"jar: $s"))
-      finder = ClassFinder(jarFiles) if jarFiles.nonEmpty
-      classInfo = finder.getClasses().filter(c => c.isConcrete && c.implements(moduleClassName))
-      _ = classInfo.foreach(s => println(s"modules: $s"))
-     // classes = ClassFinder.concreteSubclasses(moduleClassName, classInfo)
-    //instances = classes map { ci =>  ci.}
+        props.flatMap { case (label, className) =>
+          logger.info(s"Loading module '$label' (class '$className')")
+          Try(Class.forName(className.trim)) match {
+            case Success(moduleClass) => Option(instantiateModule(config, moduleClass))
+            case Failure(e: ClassNotFoundException) =>
+              logger.error(s"Module class '$className' not found")
+              None
+            case Failure(e) =>
+              logger.error(s"Failed to load module class '$className'", e)
+              None
+          }
+        }
+      }
+    } match {
+      case Success(modules) => modules.toList
+      case Failure(e) =>
+        logger.error(s"Failed to load external modules", e)
+        Nil
+    }
+  }
 
-    } yield classInfo
+  private def instantiateModule[T](config: TxConfig, moduleClass: Class[T]): Module = {
+    val cons = moduleClass.getConstructor(classOf[TxConfig])
+    cons.newInstance(config).asInstanceOf[Module]
   }
 
 }

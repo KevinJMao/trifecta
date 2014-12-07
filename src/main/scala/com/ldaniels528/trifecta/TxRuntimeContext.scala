@@ -25,14 +25,10 @@ case class TxRuntimeContext(config: TxConfig)(implicit ec: ExecutionContext) {
   private implicit val cfg = config
 
   // create the result handler
-  private val resultHandler = new TxResultHandler(config)
+  private val resultHandler = new DefaultResultHandler(config)
 
   // support registering decoders
   private val decoders = TrieMap[String, MessageDecoder[_]]()
-
-  // load the external modules
-  //val externalModules = ModuleManager.loadExternalModules(config)
-  //externalModules.foreach(println)
 
   // load the default decoders
   config.getDecoders foreach { txDecoders =>
@@ -40,6 +36,10 @@ case class TxRuntimeContext(config: TxConfig)(implicit ec: ExecutionContext) {
       decoders += txDecoder.topic -> txDecoder.decoder
     }
   }
+
+  // load the external modules
+  val externalModules = ModuleManager.loadExternalModules(config, TxConfig.moduleConfigFile)
+  externalModules.foreach(println)
 
   // create the module manager and load the built-in modules
   val moduleManager = new ModuleManager()(this)
