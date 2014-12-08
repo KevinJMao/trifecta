@@ -44,13 +44,8 @@ case class DefaultRuntimeContext(config: TxConfig)(implicit ec: ExecutionContext
   val moduleManager = new ModuleManager()(this)
 
   // load the built-in modules
-  moduleManager ++= Seq(
-    new CoreModule(config),
-    //  new ElasticSearchModule(config),
-    new KafkaModule(config),
-    //  new MongoModule(config),
-    //  new StormModule(config),
-    new ZookeeperModule(config)) ++ externalModules
+  moduleManager ++= Seq(new CoreModule(config), new KafkaModule(config), new ZookeeperModule(config)) ++ externalModules
+  //  new StormModule(config),
 
   // set the "active" module
   moduleManager.findModuleByName("core") foreach moduleManager.setActiveModule

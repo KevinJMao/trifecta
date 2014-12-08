@@ -55,15 +55,12 @@ libraryDependencies ++= Seq(
   "org.apache.zookeeper" % "zookeeper" % "3.4.6",
   "org.fusesource.jansi" % "jansi" % "1.11",
   "org.mashupbots.socko" %% "socko-webserver" % "0.4.2",
-  "org.mongodb" %% "casbah-commons" % "2.6.4",
-  "org.mongodb" %% "casbah-core" % "2.6.4",
   "org.slf4j" % "slf4j-api" % "1.7.7",
   "net.databinder.dispatch" %% "dispatch-core" % "0.11.2"
 )
 
 // Testing Dependencies
 libraryDependencies ++= Seq(
-  "com.github.tlrx" % "elasticsearch-test" % "1.2.1" % "test",
   "junit" % "junit" % "4.11" % "test",
   "org.mockito" % "mockito-all" % "1.9.5" % "test",
   "org.scalatest" %% "scalatest" % "2.2.2" % "test"
