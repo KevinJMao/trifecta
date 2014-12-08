@@ -2,14 +2,8 @@ package com.ldaniels528.trifecta
 
 import com.ldaniels528.tabular.Tabular
 import com.ldaniels528.trifecta.io.AsyncIO
-import com.ldaniels528.trifecta.io.avro.AvroTables
-import com.ldaniels528.trifecta.io.json.JsonHelper
-import com.ldaniels528.trifecta.io.kafka.KafkaMicroConsumer.MessageData
-import com.ldaniels528.trifecta.io.kafka.StreamedMessage
 import com.ldaniels528.trifecta.messages.BinaryMessaging
-import com.ldaniels528.trifecta.messages.query.QueryResult
 import net.liftweb.json._
-import org.apache.avro.generic.GenericRecord
 
 import scala.collection.GenTraversableOnce
 import scala.concurrent.duration._
@@ -22,7 +16,7 @@ import scala.util.{Failure, Success, Try}
  */
 class DefaultResultHandler(config: TxConfig) extends BinaryMessaging {
   // define the tabular instance
-  val tabular = new Tabular() with AvroTables
+  val tabular = new Tabular()
   val out = config.out
 
   /**
@@ -35,8 +29,6 @@ class DefaultResultHandler(config: TxConfig) extends BinaryMessaging {
       // handle binary data
       case message: Array[Byte] if message.isEmpty => out.println("No data returned")
       case message: Array[Byte] => dumpMessage(message)(config)
-      case MessageData(_, offset, _, _, _, message) => dumpMessage(offset, message)(config)
-      case StreamedMessage(_, _, offset, _, message) => dumpMessage(offset, message)(config)
 
       // handle the asynchronous I/O cases
       case a: AsyncIO => handleAsyncResult(a, input)
@@ -50,13 +42,6 @@ class DefaultResultHandler(config: TxConfig) extends BinaryMessaging {
       // handle Future cases
       case f: Future[_] => handleAsyncResult(f, input)
 
-      // handle Avro records
-      case g: GenericRecord =>
-        Try(JsonHelper.toJson(g)) match {
-          case Success(js) => out.println(pretty(render(js)))
-          case Failure(e) => out.println(g)
-        }
-
       // handle JSON values
       case js: JValue => out.println(pretty(render(js)))
 
@@ -65,13 +50,6 @@ class DefaultResultHandler(config: TxConfig) extends BinaryMessaging {
         case Some(v) => handleResult(v, input)
         case None => out.println("No data returned")
       }
-
-      case QueryResult(topic, fields, values, runTimeMillis) =>
-        if (values.isEmpty) out.println("No data returned")
-        else {
-          out.println(f"[Query completed in $runTimeMillis%.1f msec]")
-          tabular.transform(fields, values) foreach out.println
-        }
 
       // handle Try cases
       case t: Try[_] => t match {

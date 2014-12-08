@@ -1,6 +1,6 @@
 package com.ldaniels528.trifecta.io.mongodb
 
-import com.ldaniels528.trifecta.io.json.JsonHelper._
+import com.ldaniels528.trifecta.modules.MongoResultHandler._
 import com.mongodb.casbah.Imports._
 import com.mongodb.casbah.MongoCollection
 import net.liftweb.json.JsonAST.JValue
@@ -18,7 +18,7 @@ case class TxMongoCollection(mc: MongoCollection) {
    * @return the resultant documents
    */
   def find(criteria: JValue): Iterator[JValue] = {
-    mc.find(toDocument(criteria)).map(toJson)
+    mc.find(toDocument(criteria)).map(documentToJson)
   }
 
   /**
@@ -27,7 +27,7 @@ case class TxMongoCollection(mc: MongoCollection) {
    * @return the resultant document
    */
   def findOne(criteria: JValue, fields: JValue): Option[JValue] = {
-    mc.findOne(o = toDocument(criteria), fields = toDocument(fields)) map toJson
+    mc.findOne(o = toDocument(criteria), fields = toDocument(fields)) map documentToJson
   }
 
   /**
@@ -36,7 +36,7 @@ case class TxMongoCollection(mc: MongoCollection) {
    * @return the resultant document
    */
   def findOne(criteria: JValue): Option[JValue] = {
-    mc.findOne(o = toDocument(criteria)) map toJson
+    mc.findOne(o = toDocument(criteria)) map documentToJson
   }
 
   /**

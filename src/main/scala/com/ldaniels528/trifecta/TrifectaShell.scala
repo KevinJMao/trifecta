@@ -20,7 +20,7 @@ import scala.util.{Failure, Success, Try}
  * Trifecta Console Shell Application
  * @author Lawrence Daniels <lawrence.daniels@gmail.com>
  */
-class TrifectaShell(rt: TxRuntimeContext) {
+class TrifectaShell(rt: DefaultRuntimeContext) {
   private val config = rt.config
 
   // redirect standard output
@@ -189,7 +189,7 @@ object TrifectaShell {
     }
     else {
       // initialize the shell
-      val console = new TrifectaShell(new TxRuntimeContext(config))
+      val console = new TrifectaShell(new DefaultRuntimeContext(config))
 
       // if arguments were not passed, stop.
       args.filterNot(_.startsWith("--")).toList match {

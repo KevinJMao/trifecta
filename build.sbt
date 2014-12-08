@@ -35,8 +35,6 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) =>
   }
 }
 
-seq(bintrayResolverSettings:_*)
-
 // General Dependencies
 libraryDependencies ++= Seq(
   "com.101tec" % "zkclient" % "0.4",
@@ -60,7 +58,6 @@ libraryDependencies ++= Seq(
   "org.mongodb" %% "casbah-commons" % "2.6.4",
   "org.mongodb" %% "casbah-core" % "2.6.4",
   "org.slf4j" % "slf4j-api" % "1.7.7",
-  "org.clapper" %% "classutil" % "1.0.4",
   "net.databinder.dispatch" %% "dispatch-core" % "0.11.2"
 )
 
@@ -88,4 +85,3 @@ resolvers ++= Seq(
 
 resolvers += Resolver.file("Local repo", file(System.getProperty("user.home") + "/.ivy2/local"))(Resolver.ivyStylePatterns)
 
-resolvers += bintray.Opts.resolver.repo("bmc", "maven")

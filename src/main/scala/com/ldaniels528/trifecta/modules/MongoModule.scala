@@ -22,6 +22,9 @@ class MongoModule(config: TxConfig) extends Module with BinaryMessaging {
   private var cluster_? : Option[TxMongoCluster] = None
   private var database_? : Option[TxMongoDB] = None
 
+  // register the result handler
+  config.addResultHandler(new MongoResultHandler())
+
   /**
    * Returns the commands that are bound to the module
    * @return the commands that are bound to the module

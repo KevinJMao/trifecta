@@ -17,7 +17,7 @@ import com.ldaniels528.trifecta.rest.KafkaRestFacade._
 import com.ldaniels528.trifecta.util.OptionHelper._
 import com.ldaniels528.trifecta.util.ResourceHelper._
 import com.ldaniels528.trifecta.util.StringHelper._
-import com.ldaniels528.trifecta.{TxConfig, TxRuntimeContext}
+import com.ldaniels528.trifecta.{DefaultRuntimeContext, TxConfig}
 import kafka.common.TopicAndPartition
 import net.liftweb.json.{Extraction, JValue}
 import org.slf4j.LoggerFactory
@@ -46,7 +46,7 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
     def reportFailure(t: Throwable) = logger.error("Error from thread pool", t)
   }
 
-  private val rt = TxRuntimeContext(config)
+  private val rt = DefaultRuntimeContext(config)
 
   // load & register all decoders for their respective topics
   for {decoders <- config.getDecoders; decoder <- decoders} rt.registerDecoder(decoder.topic, decoder.decoder)
@@ -180,7 +180,7 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
       timeDelta = (time1 - time0).toDouble / 1000d
 
       // compute the rate
-      rate = if(timeDelta > 0 ) msgDelta / timeDelta else msgDelta
+      rate = if (timeDelta > 0) msgDelta / timeDelta else msgDelta
     } yield rate
   }
 

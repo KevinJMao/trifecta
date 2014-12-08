@@ -60,6 +60,9 @@ class KafkaModule(config: TxConfig) extends Module {
   // create the facade
   private val facade = new KafkaCliFacade(correlationId)
 
+  // register the result handler
+  config.addResultHandler(new KafkaResultHandler(config))
+
   /**
    * Returns the list of brokers from Zookeeper
    * @return the list of [[Broker]]s

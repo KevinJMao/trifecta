@@ -1,6 +1,7 @@
 package com.ldaniels528.trifecta.io.json
 
 import com.ldaniels528.trifecta.io.json.JsonHelper._
+import com.ldaniels528.trifecta.modules.MongoResultHandler
 import com.mongodb.casbah.Imports.{DBObject => Q}
 import org.scalatest.Matchers._
 import org.scalatest.{FeatureSpec, GivenWhenThen}
@@ -31,7 +32,7 @@ class JsonHelperSpec() extends FeatureSpec with GivenWhenThen {
           |    }""".stripMargin
 
       When("the JSON string is parsed")
-      val doc = toDocument(toJson(jsonString))
+      val doc = MongoResultHandler.toDocument(toJson(jsonString))
 
       Then("the result matches the expected result")
       doc shouldBe Q("partition" -> 1, "broker" -> Q("host" -> "vsccrtc204-brn1.rtc.vrsn.com", "port" -> 9092),

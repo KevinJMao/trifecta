@@ -6,6 +6,7 @@ import java.util.Properties
 
 import com.ldaniels528.trifecta.TxConfig.{TxDecoder, decoderDirectory}
 import com.ldaniels528.trifecta.io.avro.AvroDecoder
+import com.ldaniels528.trifecta.messages.MessageDecoder
 import com.ldaniels528.trifecta.util.PropertiesHelper._
 import com.ldaniels528.trifecta.util.ResourceHelper._
 import org.slf4j.LoggerFactory
@@ -219,7 +220,7 @@ object TxConfig {
       "trifecta.common.encoding" -> "UTF-8").toProps
   }
 
-  case class TxDecoder(topic: String, decoder: AvroDecoder)
+  case class TxDecoder(topic: String, decoder: MessageDecoder[_])
 
 }
 
