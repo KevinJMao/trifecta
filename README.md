@@ -113,6 +113,16 @@ contains the configuration properties and connection strings for all supported s
     # Storm properties
     trifecta.storm.hosts = localhost
 
+#### Third-Party Module configuration
+
+Trifecta can optionally load modules to add support for third party systems. The following is a sample of module
+configuration file (located in $HOME/.trifecta/modules.properties) for Cassandra, Elastic Search, MongoDB and Storm:
+
+    CassandraModule = com.ldaniels528.trifecta.modules.CassandraModule
+    ElasticSearch = com.ldaniels528.trifecta.modules.ElasticSearchModule
+    MongoDBModule = com.ldaniels528.trifecta.modules.MongoModule
+    StormModule = com.ldaniels528.trifecta.modules.StormModule
+
 <a name="Running-the-app"></a> 
 ### Run the application
 
