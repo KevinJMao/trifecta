@@ -13,6 +13,8 @@ import org.apache.commons.io.IOUtils
 import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus}
 import org.slf4j.LoggerFactory
 
+import scala.util.{Failure, Success, Try}
+
 /**
  * Web Content Actor
  * @author Lawrence Daniels <lawrence.daniels@gmail.com>
@@ -52,13 +54,7 @@ class WebContentActor(facade: KafkaRestFacade) extends Actor {
     path match {
       // REST requests
       case s if s.startsWith(RestRoot) =>
-        for {
-          bytes <- processRestRequest(path, dataMap)
-          mimeType <- getMimeType(s)
-        } yield mimeType -> bytes
-
-      // streaming data requests
-      case s if s.startsWith(StreamingRoot) => None
+        processRestRequest(path, dataMap)
 
       // resource requests
       case s =>
@@ -97,7 +93,7 @@ class WebContentActor(facade: KafkaRestFacade) extends Actor {
     }
   }
 
-  private def processRestRequest(path: String, dataMap: Map[String, List[String]]) = {
+  private def processRestRequest(path: String, dataMap: Map[String, List[String]]): Option[(String, Array[Byte])] = {
     import java.net.URLDecoder.decode
 
     // get the action and path arguments
@@ -109,49 +105,44 @@ class WebContentActor(facade: KafkaRestFacade) extends Actor {
     dataMap foreach { case (key, values) => logger.info(s"processRestRequest Content: '$key' ~> values = $values")}
 
     // execute the action and get the JSON value
-    val response: Option[JValue] = params flatMap { case (action, args) =>
+    params flatMap { case (action, args) =>
       action match {
-        case "downloadResults" => args match {
-          case queryString :: Nil => Option(facade.downloadResults(decode(queryString, "UTF8")))
-          case _ => None
-        }
-        case "executeQuery" => args match {
-          case queryString :: Nil => Option(facade.executeQuery(decode(queryString, "UTF8")))
-          case _ => None
-        }
+        case "executeQuery" => facade.executeQuery(dataMap.getParam("queryString")).passJson
         case "findOne" => args match {
-          case topic :: criteria :: Nil => Option(facade.findOne(topic, decode(criteria, "UTF8")))
+          case topic :: criteria :: Nil => facade.findOne(topic, decode(criteria, encoding)).passJson
           case _ => None
         }
-        case "getConsumerDeltas" if args.isEmpty => Option(JsonHelper.toJson(facade.getConsumerDeltas))
-        case "getConsumers" if args.isEmpty => Option(facade.getConsumers)
-        case "getConsumerSet" if args.isEmpty => Option(facade.getConsumerSet)
+        case "getConsumerDeltas" if args.isEmpty => JsonHelper.toJson(facade.getConsumerDeltas).passJson
+        case "getConsumers" if args.isEmpty => facade.getConsumers.passJson
+        case "getConsumerSet" if args.isEmpty => facade.getConsumerSet.passJson
         case "getMessage" => args match {
-          case topic :: partition :: offset :: Nil => Option(facade.getMessage(topic, partition.toInt, offset.toLong))
+          case topic :: partition :: offset :: Nil => facade.getMessage(topic, partition.toInt, offset.toLong).passJson
           case _ => None
         }
-        case "getQueries" if args.isEmpty => Option(facade.getQueries)
+        case "getQueries" if args.isEmpty => facade.getQueries.passJson
         case "getTopicByName" => args match {
-          case name :: Nil => facade.getTopicByName(name)
+          case name :: Nil => facade.getTopicByName(name).passJson
           case _ => None
         }
-        case "getTopicDeltas" if args.isEmpty => Option(JsonHelper.toJson(facade.getTopicDeltas))
+        case "getTopicDeltas" if args.isEmpty => JsonHelper.toJson(facade.getTopicDeltas).passJson
         case "getTopicDetailsByName" => args match {
-          case name :: Nil => Option(facade.getTopicDetailsByName(name))
+          case name :: Nil => facade.getTopicDetailsByName(name).passJson
           case _ => None
         }
-        case "getTopics" if args.isEmpty => Option(facade.getTopics)
-        case "getTopicSummaries" if args.isEmpty => Option(facade.getTopicSummaries)
-        case "getZkData" => Option(facade.getZkData(toZkPath(args.init), args.last))
-        case "getZkInfo" => Option(facade.getZkInfo(toZkPath(args)))
-        case "getZkPath" => Option(facade.getZkPath(toZkPath(args)))
-        case "saveQuery" if dataMap.nonEmpty => Option(facade.saveQuery(dataMap))
+        case "getTopics" if args.isEmpty => facade.getTopics.passJson
+        case "getTopicSummaries" if args.isEmpty => facade.getTopicSummaries.passJson
+        case "getZkData" => facade.getZkData(toZkPath(args.init), args.last).passJson
+        case "getZkInfo" => facade.getZkInfo(toZkPath(args)).passJson
+        case "getZkPath" => facade.getZkPath(toZkPath(args)).passJson
+        case "saveQuery" if dataMap.nonEmpty =>
+          val name = dataMap.getParam("name")
+          val queryString = dataMap.getParam("queryString")
+          facade.saveQuery(name, queryString).passJson
+        case "transformResultsToCSV" if dataMap.nonEmpty =>
+          facade.transformResultsToCSV(dataMap.getParam("queryResults")).passCsv
         case _ => None
       }
     }
-
-    // convert the JSON value to a binary array
-    response map (js => compact(render(js))) map (_.getBytes)
   }
 
   private def toZkPath(args: List[String]): String = "/" + args.mkString("/")
@@ -174,7 +165,53 @@ class WebContentActor(facade: KafkaRestFacade) extends Actor {
  */
 object WebContentActor {
   private val DocumentRoot = "/app"
-  private val StreamingRoot = "/stream"
   private val RestRoot = "/rest"
+  private val encoding = "UTF8"
+
+  private val MimeCsv = "text/csv"
+  private val MimeJson = "application/json"
+
+  /**
+   * Convenience method for returning a parameter from a data map
+   * @param dataMap the given data map
+   */
+  implicit class DataMapHelper(val dataMap: Map[String, List[String]]) extends AnyVal {
+
+    def getParam(name: String): Option[String] = dataMap.get(name) flatMap (_.headOption)
+
+  }
+
+  /**
+   * Convenience method for returning an option of a JSON mime type and associated binary content
+   * @param json the option of a JSON Value
+   */
+  implicit class JsonExtensionsA(val json: Option[JValue]) extends AnyVal {
+
+    def passJson: Option[(String, Array[Byte])] = json map (js => (MimeJson, compact(render(js)).getBytes(encoding)))
+
+  }
+
+  /**
+   * Convenience method for returning an option of a JSON mime type and associated binary content
+   * @param json a JSON Value
+   */
+  implicit class JsonExtensionsB(val json: JValue) extends AnyVal {
+
+    def passJson: Option[(String, Array[Byte])] = Option(json) map (js => (MimeJson, compact(render(js)).getBytes(encoding)))
+
+  }
+
+  implicit class TryExtensions(val outcome: Try[Option[List[String]]]) extends AnyVal {
+
+    def passCsv: Option[(String, Array[Byte])] = {
+      outcome match {
+        case Success(Some(list)) => Some((MimeCsv, list.mkString("\n").getBytes(encoding)))
+        case Success(None) => Some((MimeCsv, Array.empty[Byte]))
+        case Failure(e) =>
+          throw new IllegalStateException("Error processing request", e)
+      }
+    }
+
+  }
 
 }

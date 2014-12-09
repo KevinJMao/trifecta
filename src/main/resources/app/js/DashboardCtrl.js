@@ -4,14 +4,12 @@
  */
 (function () {
     angular.module('trifecta')
-        .controller('DashboardCtrl', ['$scope', '$interval', '$log', '$parse', '$timeout', 'DashboardSvc', 'MessageSearchSvc',
-            function ($scope, $interval, $log, $parse, $timeout, DashboardSvc, MessageSearchSvc) {
+        .controller('DashboardCtrl', ['$scope', '$interval', '$log', '$timeout', 'DashboardSvc', 'MessageSearchSvc',
+            function ($scope, $interval, $log, $timeout, DashboardSvc, MessageSearchSvc) {
 
                 $scope.version = "0.18.1";
-                $scope.consumerMapping = [];
                 $scope.topics = [];
                 $scope.topic = null;
-                $scope.hideEmptyTopics = true;
                 $scope.loading = 0;
 
                 clearMessage();
@@ -27,7 +25,7 @@
                         "active": false
                     }, {
                         "name": "Query",
-                        "imageURL": "/app/images/tabs/main/queries.png",
+                        "imageURL": "/app/images/tabs/main/query.png",
                         "active": false
                     }
                 ];
@@ -52,15 +50,6 @@
                     if (event) {
                         event.preventDefault();
                     }
-                };
-
-                /**
-                 * Converts the given offset from a string value to an integer
-                 * @param partition the partition that the offset value will be updated within
-                 * @param offset the given offset string value
-                 */
-                $scope.convertOffsetToInt = function(partition, offset) {
-                    partition.offset = parseInt(offset);
                 };
 
                 $scope.messageFinderPopup = function () {
@@ -150,10 +139,11 @@
                 };
 
                 $scope.medianMessage = function() {
-                    ensureOffset($scope.partition);
-                    var median = Math.round(($scope.partition.endOffset - $scope.partition.startOffset)/2);
-                    if ($scope.partition.offset != median) {
-                        $scope.partition.offset = median;
+                    var partition = $scope.partition;
+                    ensureOffset(partition);
+                    var median = Math.round(partition.startOffset + (partition.endOffset - partition.startOffset)/2);
+                    if (partition.offset != median) {
+                        partition.offset = median;
                         $scope.loadMessage();
                     }
                 };
@@ -187,21 +177,6 @@
                         $scope.loadMessage();
                         $scope.changeTab(1, null); // Query
                     }
-                };
-
-                var _lastGoodResult = "";
-                $scope.toPrettyJSON = function (objStr, tabWidth) {
-                    try {
-                        var obj = $parse(objStr)({});
-                    } catch (e) {
-                        // eat $parse error
-                        return _lastGoodResult;
-                    }
-
-                    var result = JSON.stringify(obj, null, Number(tabWidth));
-                    _lastGoodResult = result;
-
-                    return result;
                 };
 
                 $scope.updatePartition = function (partition) {
@@ -242,22 +217,6 @@
                         partition.offset = partition.startOffset;
                     }
                 }
-
-                /**
-                 * Filters out topics without messages; returning only the topics containing messages
-                 * @param topics the given array of topic summaries
-                 * @returns Array of topics containing messages
-                 */
-                $scope.filterEmptyTopics = function (topics) {
-                    var filteredTopics = [];
-                    for (var n = 0; n < topics.length; n++) {
-                        var ts = topics[n];
-                        if (ts.totalMessages > 0) {
-                            filteredTopics.push(ts);
-                        }
-                    }
-                    return filteredTopics;
-                };
 
                 /**
                  * Attempts to find and return the first non-empty topic; however, if none are found, it returns the

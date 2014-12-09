@@ -53,28 +53,15 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
 
   private val brokers: Seq[Broker] = KafkaMicroConsumer.getBrokerList(zk) map (b => Broker(b.host, b.port))
 
-  def downloadResults(queryString: String): JValue = {
-    logger.info(s"queryString = '$queryString'")
+  def executeQuery(queryString_? : Option[String]): JValue = {
     Try {
-      val asyncIO = rt.executeQuery(compileQuery(queryString))
-      Await.result(asyncIO.task, 30.minutes)
+      queryString_? map { queryString =>
+        val asyncIO = rt.executeQuery(compileQuery(queryString))
+        Await.result(asyncIO.task, 30.minutes)
+      }
     } match {
-      case Success(result: QueryResult) => Extraction.decompose(result)
-      case Failure(e) =>
-        logger.error("Query error", e)
-        Extraction.decompose(ErrorJs(e.getMessage))
-    }
-  }
-
-  def executeQuery(queryString: String): JValue = {
-    logger.info(s"queryString = '$queryString'")
-    Try {
-      val asyncIO = rt.executeQuery(compileQuery(queryString))
-      Await.result(asyncIO.task, 30.minutes)
-    } match {
-      case Success(result: QueryResult) =>
-        config.set(LAST_QUERY, queryString)
-        Extraction.decompose(result)
+      case Success(Some(result: QueryResult)) => Extraction.decompose(result)
+      case Success(None) => Extraction.decompose(ErrorJs("Query string expected"))
       case Failure(e) =>
         logger.error("Query error", e)
         Extraction.decompose(ErrorJs(e.getMessage))
@@ -376,16 +363,16 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
     })
   }
 
-  def saveQuery(dataMap: Map[String, List[String]]): JValue = {
+  def saveQuery(name: Option[String], queryString: Option[String]): JValue = {
     val outcome = for {
-      name <- dataMap.get("name") flatMap (_.headOption)
-      queryString <- dataMap.get("queryString") flatMap (_.headOption)
+      myName <- name
+      myQueryString <- queryString
     } yield {
-      val file = new File(config.queriesDirectory, s"$name.bdql")
+      val file = new File(config.queriesDirectory, s"$myName.bdql")
       // TODO add a check for new vs. replace?
 
       Try(new FileOutputStream(file) use { fos =>
-        fos.write(queryString.getBytes(config.encoding))
+        fos.write(myQueryString.getBytes(config.encoding))
       })
     }
 
@@ -393,6 +380,25 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
       case Some(Success(_)) => Extraction.decompose(ErrorJs(message = "Saved", `type` = "success"))
       case Some(Failure(e)) => Extraction.decompose(ErrorJs(message = e.getMessage, `type` = "error"))
       case _ => Extraction.decompose(ErrorJs(message = "Unknown error", `type` = "error"))
+    }
+  }
+
+  /**
+   * Transforms the given JSON query results into comma separated values
+   * @param queryResults_? the given query results
+   * @return a collection of comma separated values
+   */
+  def transformResultsToCSV(queryResults_? : Option[String]): Try[Option[List[String]]] = {
+    def toCSV(values: List[String]): String = values.map(s => s""""$s"""").mkString(",")
+    Try {
+      for {
+        js <- queryResults_? map JsonHelper.toJson
+        topic <- (js \ "topic").extractOpt[String]
+        labels <- (js \ "labels").extractOpt[List[String]]
+        values <- (js \ "values").extractOpt[List[Map[String, String]]]
+        rows = values map (m => labels map (m.getOrElse(_, "")))
+        csv = rows map toCSV
+      } yield toCSV(labels) :: csv
     }
   }
 
@@ -419,9 +425,6 @@ object KafkaRestFacade {
   val BINARY = "binary"
   val JSON = "json"
   val PLAIN_TEXT = "plain-text"
-
-  // Configuration Key Constants
-  val LAST_QUERY = "trifecta.bdql.lastQuery"
 
   private val decoders = Map[String, MessageDecoder[_ <: AnyRef]](
     AUTO -> AutoDecoder, BINARY -> LoopBackCodec, PLAIN_TEXT -> PlainTextCodec, JSON -> JsonDecoder)
@@ -463,8 +466,6 @@ object KafkaRestFacade {
   case class FormattedData(`type`: String, value: Any)
 
   case class MessageJs(`type`: String, payload: Any, topic: Option[String] = None, partition: Option[Int] = None, offset: Option[Long] = None)
-
-  case class QueryJs(name: String, queryString: String)
 
   case class TopicDetailsJs(topic: String, partition: Int, startOffset: Option[Long], endOffset: Option[Long], messages: Option[Long])
 
