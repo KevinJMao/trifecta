@@ -3,6 +3,7 @@ package com.ldaniels528.trifecta.rest
 import java.io.{File, FileOutputStream}
 import java.util.concurrent.Executors
 
+import com.ldaniels528.trifecta.TxConfig.TxDecoder
 import com.ldaniels528.trifecta.command.parser.bdql.{BigDataQueryParser, BigDataQueryTokenizer}
 import com.ldaniels528.trifecta.io.json.{JsonDecoder, JsonHelper}
 import com.ldaniels528.trifecta.io.kafka.{Broker, KafkaMicroConsumer}
@@ -12,8 +13,8 @@ import com.ldaniels528.trifecta.messages.MessageDecoder
 import com.ldaniels528.trifecta.messages.logic.Condition
 import com.ldaniels528.trifecta.messages.logic.Expressions.{AND, Expression, OR}
 import com.ldaniels528.trifecta.messages.query.{BigDataSelection, QueryResult}
-import com.ldaniels528.trifecta.rest.EmbeddedWebServer._
 import com.ldaniels528.trifecta.rest.KafkaRestFacade._
+import com.ldaniels528.trifecta.rest.TxWebConfig._
 import com.ldaniels528.trifecta.util.OptionHelper._
 import com.ldaniels528.trifecta.util.ResourceHelper._
 import com.ldaniels528.trifecta.util.StringHelper._
@@ -41,7 +42,10 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
   private implicit val ec = new ExecutionContext {
     private val threadPool = Executors.newFixedThreadPool(50)
 
-    def execute(runnable: Runnable) = threadPool.submit(runnable)
+    def execute(runnable: Runnable) = {
+      threadPool.submit(runnable)
+      ()
+    }
 
     def reportFailure(t: Throwable) = logger.error("Error from thread pool", t)
   }
@@ -49,19 +53,24 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
   private val rt = DefaultRuntimeContext(config)
 
   // load & register all decoders for their respective topics
-  for {decoders <- config.getDecoders; decoder <- decoders} rt.registerDecoder(decoder.topic, decoder.decoder)
+  for (decoders <- config.getDecoders; decoder <- decoders) {
+    decoder.decoder match {
+      case Left(d) => rt.registerDecoder(decoder.topic, d)
+      case Right(d) =>
+        logger.error(s"Failed to compile Avro schema for topic '${decoder.topic}'. Error: ${d.error.getMessage}")
+    }
+  }
 
   private val brokers: Seq[Broker] = KafkaMicroConsumer.getBrokerList(zk) map (b => Broker(b.host, b.port))
 
-  def executeQuery(queryString_? : Option[String]): JValue = {
+  def executeQuery(jsonString: String): JValue = {
     Try {
-      queryString_? map { queryString =>
-        val asyncIO = rt.executeQuery(compileQuery(queryString))
-        Await.result(asyncIO.task, 30.minutes)
-      }
+      val query = JsonHelper.transform[QueryJs](jsonString)
+      val asyncIO = rt.executeQuery(compileQuery(query.queryString))
+      Await.result(asyncIO.task, 30.minutes)
     } match {
-      case Success(Some(result: QueryResult)) => Extraction.decompose(result)
-      case Success(None) => Extraction.decompose(ErrorJs("Query string expected"))
+      case Success(result: QueryResult) => Extraction.decompose(result)
+      case Success(_) => Extraction.decompose(ErrorJs("Query string expected"))
       case Failure(e) =>
         logger.error("Query error", e)
         Extraction.decompose(ErrorJs(e.getMessage))
@@ -217,6 +226,44 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
   }
 
   /**
+   * Returns a decoder by topic
+   * @return the collection of decoders
+   */
+  def getDecoderByTopic(topic: String): Option[JValue] = {
+    val results = config.getDecoders map { decoders =>
+      toDecoderJs(topic, decoders filter (_.topic == topic))
+    }
+
+    // transform the results to JSON
+    results map Extraction.decompose
+  }
+
+  /**
+   * Returns all available decoders
+   * @return the collection of decoders
+   */
+  def getDecoders: Option[JValue] = {
+    config.getDecoders map { allDecoders =>
+      val results = (allDecoders.groupBy(_.topic) map { case (topic, myDecoders) =>
+        toDecoderJs(topic, myDecoders)
+      }).toSeq sortBy (_.topic)
+
+      // transform the results to JSON
+      Extraction.decompose(results)
+    }
+  }
+
+  private def toDecoderJs(topic: String, decoders: Seq[TxDecoder]): DecoderJs = {
+    val schemas = decoders map { d =>
+      d.decoder match {
+        case Left(decoder) => SchemaJs(topic, d.name, JsonHelper.makePretty(decoder.schema.toString), error = None)
+        case Right(decoder) => SchemaJs(topic, d.name, decoder.schemaString, error = Some(decoder.error.getMessage))
+      }
+    }
+    DecoderJs(topic, schemas)
+  }
+
+  /**
    * Returns the first offset for a given topic
    */
   def getFirstOffset(topic: String, partition: Int)(implicit zk: ZKProxy): Option[Long] = {
@@ -363,36 +410,51 @@ case class KafkaRestFacade(config: TxConfig, zk: ZKProxy, correlationId: Int = 0
     })
   }
 
-  def saveQuery(name: Option[String], queryString: Option[String]): JValue = {
-    val outcome = for {
-      myName <- name
-      myQueryString <- queryString
-    } yield {
-      val file = new File(config.queriesDirectory, s"$myName.bdql")
+  def saveQuery(jsonString: String): JValue = {
+    Try {
+      // transform the JSON string into a query
+      val query = JsonHelper.transform[QueryJs](jsonString)
+
+      val file = new File(TxWebConfig.queriesDirectory, s"${query.name}.bdql")
       // TODO add a check for new vs. replace?
 
-      Try(new FileOutputStream(file) use { fos =>
-        fos.write(myQueryString.getBytes(config.encoding))
-      })
+      new FileOutputStream(file) use { fos =>
+        fos.write(query.queryString.getBytes(config.encoding))
+      }
+    } match {
+      case Success(_) => Extraction.decompose(ErrorJs(message = "Saved", `type` = "success"))
+      case Failure(e) => Extraction.decompose(ErrorJs(message = e.getMessage, `type` = "error"))
     }
+  }
 
-    outcome match {
-      case Some(Success(_)) => Extraction.decompose(ErrorJs(message = "Saved", `type` = "success"))
-      case Some(Failure(e)) => Extraction.decompose(ErrorJs(message = e.getMessage, `type` = "error"))
-      case _ => Extraction.decompose(ErrorJs(message = "Unknown error", `type` = "error"))
+  def saveSchema(jsonString: String): JValue = {
+    Try {
+      // transform the JSON string into a schema
+      val schema = JsonHelper.transform[SchemaJs](jsonString)
+
+      val decoderFile = new File(new File(TxConfig.decoderDirectory, schema.topic), schema.name)
+      logger.info(s"decoderFile = ${decoderFile.getAbsolutePath}")
+      // TODO add a check for new vs. replace?
+
+      new FileOutputStream(decoderFile) use { fos =>
+        fos.write(schema.schemaString.getBytes(config.encoding))
+      }
+    } match {
+      case Success(_) => Extraction.decompose(ErrorJs(message = "Saved", `type` = "success"))
+      case Failure(e) => Extraction.decompose(ErrorJs(message = e.getMessage, `type` = "error"))
     }
   }
 
   /**
    * Transforms the given JSON query results into comma separated values
-   * @param queryResults_? the given query results
+   * @param queryResults the given query results (as a JSON string)
    * @return a collection of comma separated values
    */
-  def transformResultsToCSV(queryResults_? : Option[String]): Try[Option[List[String]]] = {
+  def transformResultsToCSV(queryResults: String): Try[Option[List[String]]] = {
     def toCSV(values: List[String]): String = values.map(s => s""""$s"""").mkString(",")
     Try {
+      val js = JsonHelper.toJson(queryResults)
       for {
-        js <- queryResults_? map JsonHelper.toJson
         topic <- (js \ "topic").extractOpt[String]
         labels <- (js \ "labels").extractOpt[List[String]]
         values <- (js \ "values").extractOpt[List[Map[String, String]]]
@@ -461,11 +523,17 @@ object KafkaRestFacade {
 
   case class ConsumerConsumerJs(consumerId: String, details: Seq[ConsumerJs])
 
+  case class DecoderJs(topic: String, schemas: Seq[SchemaJs])
+
+  case class SchemaJs(topic: String, name: String, schemaString: String, error: Option[String] = None)
+
   case class ErrorJs(message: String, `type`: String = "error")
 
   case class FormattedData(`type`: String, value: Any)
 
   case class MessageJs(`type`: String, payload: Any, topic: Option[String] = None, partition: Option[Int] = None, offset: Option[Long] = None)
+
+  case class QueryJs(name: String, queryString: String)
 
   case class TopicDetailsJs(topic: String, partition: Int, startOffset: Option[Long], endOffset: Option[Long], messages: Option[Long])
 

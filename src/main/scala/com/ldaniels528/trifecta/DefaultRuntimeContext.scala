@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext
-import scala.util.Try
+import scala.util.{Left, Try}
 
 /**
  * Default Runtime Context
@@ -31,11 +31,13 @@ case class DefaultRuntimeContext(config: TxConfig)(implicit ec: ExecutionContext
   private val decoders = TrieMap[String, MessageDecoder[_]]()
 
   // load the default decoders
-  config.getDecoders foreach { txDecoders =>
-    txDecoders foreach { txDecoder =>
-      decoders += txDecoder.topic -> txDecoder.decoder
+  config.getDecoders foreach (_ foreach { txDecoder =>
+    txDecoder.decoder match {
+      case Left(decoder) => decoders += txDecoder.topic -> decoder
+      case Right(decoder) =>
+        logger.error(s"Failed to compile Avro schema for topic '${txDecoder.topic}'. Error: ${decoder.error.getMessage}")
     }
-  }
+  })
 
   // load the external modules
   val externalModules = ModuleManager.loadExternalModules(config, TxConfig.moduleConfigFile)
