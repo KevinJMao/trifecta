@@ -1,6 +1,6 @@
 package com.ldaniels528.trifecta.io.kafka
 
-import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
 import com.ldaniels528.trifecta.io.AsyncIO.IOCounter
 import com.ldaniels528.trifecta.io.ByteBufferUtils._
@@ -14,7 +14,6 @@ import kafka.api._
 import kafka.common._
 import kafka.consumer.SimpleConsumer
 import net.liftweb.json._
-import org.slf4j.LoggerFactory
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.language.postfixOps
@@ -24,16 +23,17 @@ import scala.util.{Failure, Success, Try}
  * Kafka Low-Level Message Consumer
  * @author Lawrence Daniels <lawrence.daniels@gmail.com>
  */
-class KafkaMicroConsumer(topicAndPartition: TopicAndPartition, seedBrokers: Seq[Broker], correlationId: Int = 0) {
+class KafkaMicroConsumer(topicAndPartition: TopicAndPartition, seedBrokers: Seq[Broker]) {
+
   // get the leader, meta data and replica brokers
-  private val (broker, _, replicas) = getLeaderPartitionMetaDataAndReplicas(topicAndPartition, seedBrokers, correlationId)
+  val (leader, _, replicas) = getLeaderPartitionMetaDataAndReplicas(topicAndPartition, seedBrokers)
     .getOrElse(throw new VxKafkaTopicException("The leader broker could not be determined", topicAndPartition))
 
   // generate the client ID
   private val clientID = makeClientID("consumer")
 
   // get the connection (topic consumer)
-  private val consumer: SimpleConsumer = connect(broker, clientID)
+  private val consumer = connect(leader, clientID)
 
   /**
    * Closes the underlying consumer instance
@@ -140,7 +140,7 @@ class KafkaMicroConsumer(topicAndPartition: TopicAndPartition, seedBrokers: Seq[
   def getOffsetsBefore(time: Long): Seq[Long] = {
     // create the topic/partition and request information
     val requestInfo = Map(topicAndPartition -> new PartitionOffsetRequestInfo(time, 1))
-    val replicaId = replicas.indexOf(broker)
+    val replicaId = replicas.indexOf(leader)
 
     // submit the request, and retrieve the response
     val request = new OffsetRequest(requestInfo, correlationId, replicaId)
@@ -167,22 +167,27 @@ class KafkaMicroConsumer(topicAndPartition: TopicAndPartition, seedBrokers: Seq[
  */
 object KafkaMicroConsumer {
   private implicit val formats = net.liftweb.json.DefaultFormats
-  private lazy val logger = LoggerFactory.getLogger(getClass)
   private val DEFAULT_FETCH_SIZE: Int = 65536
+  private val correlationIdGen = new AtomicInteger(-1)
+
+  /**
+   * Returns the next correlation ID
+   * @return the next correlation ID
+   */
+  def correlationId: Int = correlationIdGen.incrementAndGet()
 
   /**
    * Returns the promise of the total number of a messages that match the given search criteria
    * @param topic the given topic name
    * @param brokers the given replica brokers
-   * @param correlationId the given correlation ID
    * @param conditions the given search criteria
    * @return the promise of the total number of messages that match the given search criteria
    */
-  def count(topic: String, brokers: Seq[Broker], correlationId: Int, conditions: Condition*)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Long] = {
+  def count(topic: String, brokers: Seq[Broker], conditions: Condition*)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Long] = {
     val tasks = getTopicPartitions(topic) map { partition =>
       Future {
         var counter = 0L
-        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers, correlationId) use { subs =>
+        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers) use { subs =>
           var offset: Option[Long] = subs.getFirstOffset
           val lastOffset: Option[Long] = subs.getLastOffset
           def eof: Boolean = offset.exists(o => lastOffset.exists(o > _))
@@ -221,7 +226,7 @@ object KafkaMicroConsumer {
     val tasks = (1 to partitions.size) zip partitions map { case (threadId, partition) =>
       Future {
         var messages: List[MessageData] = Nil
-        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers, correlationId) use { subs =>
+        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers) use { subs =>
           var offset: Option[Long] = subs.getFirstOffset
           val lastOffset: Option[Long] = subs.getLastOffset
           def eof: Boolean = offset.exists(o => lastOffset.exists(o > _)) || limit.exists(count.get >= _)
@@ -252,16 +257,15 @@ object KafkaMicroConsumer {
    * Returns the promise of the option of a message based on the given search criteria
    * @param topic the given topic name
    * @param brokers the given replica brokers
-   * @param correlationId the given correlation ID
    * @param conditions the given search criteria
    * @return the promise of the option of a message based on the given search criteria
    */
-  def findOne(topic: String, brokers: Seq[Broker], correlationId: Int, forward: Boolean, conditions: Condition*)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Option[(Int, MessageData)]] = {
+  def findOne(topic: String, brokers: Seq[Broker], forward: Boolean, conditions: Condition*)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Option[(Int, MessageData)]] = {
     val promise = Promise[Option[(Int, MessageData)]]()
     val message = new AtomicReference[Option[(Int, MessageData)]](None)
     val tasks = getTopicPartitions(topic) map { partition =>
       Future {
-        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers, correlationId) use { subs =>
+        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers) use { subs =>
           if (forward)
             findOneForward(subs, partition, message, conditions: _*)
           else
@@ -314,14 +318,13 @@ object KafkaMicroConsumer {
    * Returns the promise of the option of a message based on the given search criteria
    * @param tap the given [[TopicAndPartition]]
    * @param brokers the given replica brokers
-   * @param correlationId the given correlation ID
    * @param conditions the given search criteria
    * @return the promise of the option of a message based on the given search criteria
    */
-  def findNext(tap: TopicAndPartition, brokers: Seq[Broker], correlationId: Int, conditions: Condition*)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Option[MessageData]] = {
+  def findNext(tap: TopicAndPartition, brokers: Seq[Broker], conditions: Condition*)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Option[MessageData]] = {
     val message = new AtomicReference[Option[MessageData]](None)
     Future {
-      new KafkaMicroConsumer(tap, brokers, correlationId) use { subs =>
+      new KafkaMicroConsumer(tap, brokers) use { subs =>
         var offset: Option[Long] = subs.getFirstOffset
         val lastOffset: Option[Long] = subs.getLastOffset
         def eof: Boolean = offset.exists(o => lastOffset.exists(o > _)) || message.get.isDefined
@@ -374,11 +377,29 @@ object KafkaMicroConsumer {
           val partitionPath = s"$topicPath/$partitionId"
           zk.readString(partitionPath) flatMap { offset =>
             val lastModified = zk.getModificationTime(partitionPath)
-            successOnly(Try(ConsumerDetails(consumerId, topic, partitionId.toInt, offset.toLong, lastModified)))
+            Try(ConsumerDetails(consumerId, topic, partitionId.toInt, offset.toLong, lastModified)).toOption
           }
         }
       }
     }
+  }
+
+  def getReplicas(topic: String, brokers: Seq[Broker])(implicit zk: ZKProxy): Seq[ReplicaBroker] = {
+    val results = for {
+      partition <- getTopicPartitions(topic)
+      (leader, pmd, replicas) <- getLeaderPartitionMetaDataAndReplicas(TopicAndPartition(topic, partition), brokers)
+    } yield partition -> replicas
+
+    results flatMap { case (partition, replicas) => replicas map (r =>
+      ReplicaBroker(partition, r.host, r.port, r.brokerId))
+    }
+  }
+
+  def getLeaderAndReplicas(topic: String, brokers: Seq[Broker])(implicit zk: ZKProxy): Seq[LeaderAndReplicas] = {
+    for {
+      partition <- getTopicPartitions(topic)
+      (leader, pmd, replicas) <- getLeaderPartitionMetaDataAndReplicas(TopicAndPartition(topic, partition), brokers)
+    } yield LeaderAndReplicas(partition, leader, replicas)
   }
 
   /**
@@ -388,7 +409,7 @@ object KafkaMicroConsumer {
     zk.getFamily(path = "/").distinct filter (_.matches( """\S+[/]partition_\d+""")) flatMap { path =>
       zk.readString(path) flatMap { jsonString =>
         val lastModified = zk.getModificationTime(path)
-        successOnly(Try {
+        Try {
           val json = parse(jsonString)
           val id = (json \ "topology" \ "id").extract[String]
           val name = (json \ "topology" \ "name").extract[String]
@@ -398,19 +419,9 @@ object KafkaMicroConsumer {
           val brokerHost = (json \ "broker" \ "host").extract[String]
           val brokerPort = (json \ "broker" \ "port").extract[Int]
           ConsumerDetailsPM(id, name, topic, partition, offset, lastModified, s"$brokerHost:$brokerPort")
-        })
+        }.toOption
       }
     }
-  }
-
-  /**
-   * Transforms the given result into a [[Some]] if successful or [[None]] if failure
-   * @param result  the given result
-   * @return an Option representing success or failure
-   */
-  private def successOnly[S](result: Try[S]): Option[S] = result match {
-    case Success(v) => Option(v)
-    case Failure(e) => None
   }
 
   /**
@@ -433,36 +444,38 @@ object KafkaMicroConsumer {
   /**
    * Returns the list of topics for the given brokers
    */
-  def getTopicList(brokers: Seq[Broker], correlationId: Int = 0)(implicit zk: ZKProxy): Seq[TopicDetails] = {
+  def getTopicList(brokers: Seq[Broker])(implicit zk: ZKProxy): Seq[TopicDetails] = {
     // get the list of topics
     val topics = zk.getChildren(path = "/brokers/topics")
 
     // capture the meta data for all topics
-    getTopicMetadata(brokers.head, topics, correlationId) flatMap { tmd =>
-      // check for errors
-      if (tmd.errorCode != 0) throw new VxKafkaCodeException(tmd.errorCode)
-
-      // translate the partition meta data into topic information instances
-      tmd.partitionsMetadata map { pmd =>
+    brokers.headOption map { broker =>
+      getTopicMetadata(broker, topics) flatMap { tmd =>
         // check for errors
-        if (pmd.errorCode != 0) throw new VxKafkaCodeException(pmd.errorCode)
+        if (tmd.errorCode != 0) throw new VxKafkaCodeException(tmd.errorCode)
 
-        TopicDetails(
-          tmd.topic,
-          pmd.partitionId,
-          pmd.leader map (b => Broker(b.host, b.port, b.id)),
-          pmd.replicas map (b => Broker(b.host, b.port, b.id)),
-          pmd.isr map (b => Broker(b.host, b.port)),
-          tmd.sizeInBytes)
+        // translate the partition meta data into topic information instances
+        tmd.partitionsMetadata map { pmd =>
+          // check for errors
+          if (pmd.errorCode != 0) throw new VxKafkaCodeException(pmd.errorCode)
+
+          TopicDetails(
+            tmd.topic,
+            pmd.partitionId,
+            pmd.leader map (b => Broker(b.host, b.port, b.id)),
+            pmd.replicas map (b => Broker(b.host, b.port, b.id)),
+            pmd.isr map (b => Broker(b.host, b.port, b.id)),
+            tmd.sizeInBytes)
+        }
       }
-    }
+    } getOrElse Nil
   }
 
   /**
    * Returns the list of summarized topics for the given brokers
    */
-  def getTopicSummaryList(brokers: Seq[Broker], correlationId: Int)(implicit zk: ZKProxy): Iterable[TopicSummary] = {
-    getTopicList(brokers, correlationId) groupBy (_.topic) map { case (name, partitions) =>
+  def getTopicSummaryList(brokers: Seq[Broker])(implicit zk: ZKProxy): Iterable[TopicSummary] = {
+    getTopicList(brokers) groupBy (_.topic) map { case (name, partitions) =>
       TopicSummary(name, partitions.map(_.partitionId).max)
     }
   }
@@ -471,14 +484,13 @@ object KafkaMicroConsumer {
    * Returns the promise of the option of a message based on the given search criteria
    * @param topic the given topic name
    * @param brokers the given replica brokers
-   * @param correlationId the given correlation ID
    * @param observer the given callback function
    * @return the promise of the option of a message based on the given search criteria
    */
-  def observe(topic: String, brokers: Seq[Broker], correlationId: Int)(observer: MessageData => Unit)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Seq[Unit]] = {
+  def observe(topic: String, brokers: Seq[Broker])(observer: MessageData => Unit)(implicit ec: ExecutionContext, zk: ZKProxy): Future[Seq[Unit]] = {
     Future.sequence(getTopicPartitions(topic) map { partition =>
       Future {
-        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers, correlationId) use { subs =>
+        new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers) use { subs =>
           var offset: Option[Long] = subs.getFirstOffset
           val lastOffset: Option[Long] = subs.getLastOffset
           def eof: Boolean = offset.exists(o => lastOffset.exists(o > _))
@@ -502,32 +514,30 @@ object KafkaMicroConsumer {
   /**
    * Retrieves the partition meta data and replicas for the lead broker
    */
-  private def getLeaderPartitionMetaDataAndReplicas(topic: TopicAndPartition, brokers: Seq[Broker], correlationId: Int): Option[(Broker, PartitionMetadata, Seq[Broker])] = {
+  private def getLeaderPartitionMetaDataAndReplicas(tap: TopicAndPartition, brokers: Seq[Broker]): Option[(Broker, PartitionMetadata, Seq[Broker])] = {
     for {
-      pmd <- brokers.foldLeft[Option[PartitionMetadata]](None)((result, broker) => result ?? getPartitionMetadata(broker, topic, correlationId))
-      leader <- pmd.leader map (r => Broker(r.host, r.port))
-      replicas = pmd.replicas map (r => Broker(r.host, r.port))
+      pmd <- brokers.foldLeft[Option[PartitionMetadata]](None)((result, broker) =>
+        result ?? getPartitionMetadata(broker, tap).headOption)
+      leader <- pmd.leader map (r => Broker(r.host, r.port, r.id))
+      replicas = pmd.replicas map (r => Broker(r.host, r.port, r.id))
     } yield (leader, pmd, replicas)
   }
 
   /**
    * Retrieves the partition meta data for the given broker
    */
-  private def getPartitionMetadata(broker: Broker, topicAndPartition: TopicAndPartition, correlationId: Int): Option[PartitionMetadata] = {
-    connect(broker, makeClientID("pmdLookup")) use { consumer =>
+  private def getPartitionMetadata(broker: Broker, tap: TopicAndPartition): Seq[PartitionMetadata] = {
+    connect(broker, makeClientID("pmd_lookup")) use { consumer =>
       Try {
-        // submit the request and retrieve the response
-        val response = consumer.send(new TopicMetadataRequest(Seq(topicAndPartition.topic), correlationId))
-
-        // capture the meta data for the partition
-        (response.topicsMetadata flatMap { tmd =>
-          tmd.partitionsMetadata.find(m => m.partitionId == topicAndPartition.partition)
-        }).headOption
+        consumer
+          .send(new TopicMetadataRequest(Seq(tap.topic), correlationId))
+          .topicsMetadata
+          .flatMap(_.partitionsMetadata.find(_.partitionId == tap.partition))
 
       } match {
-        case Success(pmd) => pmd
+        case Success(pmdSeq) => pmdSeq
         case Failure(e) =>
-          throw new VxKafkaTopicException(s"Error communicating with Broker [$broker] to find Leader", topicAndPartition, e)
+          throw new VxKafkaTopicException(s"Error communicating with Broker [$broker] to find Leader", tap, e)
       }
     }
   }
@@ -535,17 +545,15 @@ object KafkaMicroConsumer {
   /**
    * Retrieves the partition meta data for the given broker
    */
-  private def getTopicMetadata(broker: Broker, topics: Seq[String], correlationId: Int): Seq[TopicMetadata] = {
-    connect(broker, makeClientID("tmdLookup")) use { consumer =>
+  private def getTopicMetadata(broker: Broker, topics: Seq[String]): Seq[TopicMetadata] = {
+    connect(broker, makeClientID("tmd_lookup")) use { consumer =>
       Try {
-        // submit the request and retrieve the response
-        val response = consumer.send(new TopicMetadataRequest(topics, correlationId))
-
-        // capture the meta data for the partition
-        response.topicsMetadata
+        consumer
+          .send(new TopicMetadataRequest(topics, correlationId))
+          .topicsMetadata
 
       } match {
-        case Success(tmds) => tmds
+        case Success(tmdSeq) => tmdSeq
         case Failure(e) =>
           throw new VxKafkaException(s"Error communicating with Broker [$broker] Reason: ${e.getMessage}", e)
       }
@@ -577,6 +585,10 @@ object KafkaMicroConsumer {
    */
   case class MessageData(partition: Int, offset: Long, nextOffset: Long, lastOffset: Long, key: Array[Byte], message: Array[Byte])
     extends BinaryMessage
+
+  case class ReplicaBroker(partition: Int, host: String, port: Int, id: Int)
+
+  case class LeaderAndReplicas(partition: Int, leader: Broker, replicas: Seq[Broker])
 
   /**
    * Represents the details for a Kafka topic

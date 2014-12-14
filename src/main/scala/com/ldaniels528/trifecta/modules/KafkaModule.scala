@@ -11,7 +11,7 @@ import com.ldaniels528.trifecta.io.AsyncIO.IOCounter
 import com.ldaniels528.trifecta.io.avro.AvroConversion._
 import com.ldaniels528.trifecta.io.avro.{AvroCodec, AvroDecoder}
 import com.ldaniels528.trifecta.io.kafka.KafkaCliFacade._
-import com.ldaniels528.trifecta.io.kafka.KafkaMicroConsumer.{BrokerDetails, MessageData, contentFilter}
+import com.ldaniels528.trifecta.io.kafka.KafkaMicroConsumer.{MessageData, contentFilter}
 import com.ldaniels528.trifecta.io.kafka._
 import com.ldaniels528.trifecta.io.zookeeper.ZKProxy
 import com.ldaniels528.trifecta.io.{AsyncIO, InputSource, KeyAndMessage, OutputSource}
@@ -58,7 +58,7 @@ class KafkaModule(config: TxConfig) extends Module {
   private var watching: Boolean = false
 
   // create the facade
-  private val facade = new KafkaCliFacade(correlationId)
+  private val facade = new KafkaCliFacade()
 
   // register the result handler
   config.addResultHandler(new KafkaResultHandler(config))
@@ -112,6 +112,7 @@ class KafkaModule(config: TxConfig) extends Module {
 
     // topic/message information and statistics commands
     Command(this, "kbrokers", getBrokers, UnixLikeParams(), help = "Returns a list of the brokers from ZooKeeper"),
+    Command(this, "kreplicas", getReplicas, UnixLikeParams(Seq("topic" -> true)), help = "Returns a list of the replicas for a topic"),
     Command(this, "kfetchsize", fetchSizeGetOrSet, UnixLikeParams(Seq("fetchSize" -> false)), help = "Retrieves or sets the default fetch size for all Kafka queries"),
     Command(this, "kinbound", inboundMessages, UnixLikeParams(Seq("topicPrefix" -> false), Seq("-w" -> "wait-time")), help = "Retrieves a list of topics with new messages (since last query)"),
     Command(this, "kls", getTopics, UnixLikeParams(Seq("topicPrefix" -> false), Seq("-l" -> "listMode")), help = "Lists all existing topics"),
@@ -341,7 +342,7 @@ class KafkaModule(config: TxConfig) extends Module {
     }
 
     // perform the search
-    KafkaMicroConsumer.findOne(topic, brokers, correlationId, forward, parseCondition(params, decoder_?)) map {
+    KafkaMicroConsumer.findOne(topic, brokers, forward, parseCondition(params, decoder_?)) map {
       _ map { case (partition, md) =>
         getMessage(topic, partition, md.offset, params)
       }
@@ -373,7 +374,7 @@ class KafkaModule(config: TxConfig) extends Module {
     val condition = parseCondition(params, decoder_?)
 
     // perform the search
-    KafkaMicroConsumer.findNext(TopicAndPartition(topic, partition), brokers, correlationId, condition) map {
+    KafkaMicroConsumer.findNext(TopicAndPartition(topic, partition), brokers, condition) map {
       _ map (md => getMessage(topic, partition, md.offset, params))
     }
   }
@@ -407,8 +408,16 @@ class KafkaModule(config: TxConfig) extends Module {
   /**
    * Retrieves the list of Kafka brokers
    */
-  def getBrokers(args: UnixLikeArgs): Seq[BrokerDetails] = {
-    KafkaMicroConsumer.getBrokerList
+  def getBrokers(params: UnixLikeArgs) = KafkaMicroConsumer.getBrokerList
+
+  /**
+   * Retrieves the list of Kafka replicas for a given topic
+   */
+  def getReplicas(params: UnixLikeArgs) = {
+    params.args match {
+      case topic :: Nil => KafkaMicroConsumer.getReplicas(topic, brokers) sortBy (_.partition)
+      case _ => dieSyntax(params)
+    }
   }
 
   /**
@@ -524,7 +533,7 @@ class KafkaModule(config: TxConfig) extends Module {
     }
 
     // retrieve the message
-    val messageData = new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers, correlationId) use { consumer =>
+    val messageData = new KafkaMicroConsumer(TopicAndPartition(topic, partition), brokers) use { consumer =>
       val myOffset: Long = instant flatMap (t => consumer.getOffsetsBefore(t).headOption) getOrElse offset
       consumer.fetch(myOffset)(getFetchSize(params)).headOption
     }
@@ -705,11 +714,11 @@ class KafkaModule(config: TxConfig) extends Module {
     val results = params.args match {
       case Nil =>
         val topic = navigableCursor map (_.topic) getOrElse dieNoCursor
-        val partitions = KafkaMicroConsumer.getTopicList(brokers, correlationId).filter(_.topic == topic).map(_.partitionId)
+        val partitions = KafkaMicroConsumer.getTopicList(brokers).filter(_.topic == topic).map(_.partitionId)
         if (partitions.nonEmpty) Option((topic, partitions.min, partitions.max)) else None
 
       case topic :: Nil =>
-        val partitions = KafkaMicroConsumer.getTopicList(brokers, correlationId).filter(_.topic == topic).map(_.partitionId)
+        val partitions = KafkaMicroConsumer.getTopicList(brokers).filter(_.topic == topic).map(_.partitionId)
         if (partitions.nonEmpty) Option((topic, partitions.min, partitions.max)) else None
 
       case topic :: aPartition :: Nil =>
@@ -783,7 +792,7 @@ class KafkaModule(config: TxConfig) extends Module {
    */
   private def inboundMessageStatistics(topicPrefix: Option[String] = None): Iterable[Inbound] = {
     // start by retrieving a list of all topics
-    val topics = KafkaMicroConsumer.getTopicList(brokers, correlationId)
+    val topics = KafkaMicroConsumer.getTopicList(brokers)
       .filter(t => t.topic == topicPrefix.getOrElse(t.topic))
       .groupBy(_.topic)
 
@@ -847,7 +856,7 @@ class KafkaModule(config: TxConfig) extends Module {
     val topicPrefix = params("-t")
 
     // get the Kafka consumer groups
-    facade.getConsumers(consumerPrefix, topicPrefix)
+    facade.getConsumers(consumerPrefix, topicPrefix, config.consumersPartitionManager)
   }
 
   /**
