@@ -68,6 +68,7 @@ class DefaultResultHandler(config: TxConfig) extends BinaryMessaging {
       case x =>
         if (x != null && !x.isInstanceOf[Unit]) {
           config.getResultHandlers.find(_.handleResult(x, out)) getOrElse out.println(x)
+          ()
         }
     }
   }

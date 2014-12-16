@@ -1,8 +1,9 @@
 package com.ldaniels528.trifecta
 
+
 import com.ldaniels528.trifecta.io.{AsyncIO, InputSource, OutputSource}
 import com.ldaniels528.trifecta.messages.MessageDecoder
-import com.ldaniels528.trifecta.messages.query.BigDataQuery
+import com.ldaniels528.trifecta.messages.query.KQLQuery
 import com.ldaniels528.trifecta.modules.ModuleManager
 
 import scala.concurrent.ExecutionContext
@@ -69,8 +70,8 @@ trait TxRuntimeContext {
 
   /**
    * Executes the given query
-   * @param query the given [[BigDataQuery]]
+   * @param query the given [[KQLQuery]]
    */
-  def executeQuery(query: BigDataQuery)(implicit ec: ExecutionContext): AsyncIO
+  def executeQuery(query: KQLQuery)(implicit ec: ExecutionContext): AsyncIO
 
 }

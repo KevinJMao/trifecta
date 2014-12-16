@@ -7,7 +7,7 @@ import com.ldaniels528.trifecta.io.avro.AvroTables
 import com.ldaniels528.trifecta.io.kafka.KafkaMicroConsumer.MessageData
 import com.ldaniels528.trifecta.io.kafka.StreamedMessage
 import com.ldaniels528.trifecta.messages.BinaryMessaging
-import com.ldaniels528.trifecta.messages.query.QueryResult
+import com.ldaniels528.trifecta.messages.query.KQLResult
 import com.ldaniels528.trifecta.{TxConfig, TxResultHandler}
 import net.liftweb.json.JsonAST.JValue
 import net.liftweb.json._
@@ -46,7 +46,7 @@ class KafkaResultHandler(config: TxConfig) extends TxResultHandler with BinaryMe
         dumpMessage(offset, message)(config)
         true
 
-      case QueryResult(topic, fields, values, runTimeMillis) =>
+      case KQLResult(topic, fields, values, runTimeMillis) =>
         if (values.isEmpty) out.println("No data returned")
         else {
           out.println(f"[Query completed in $runTimeMillis%.1f msec]")
