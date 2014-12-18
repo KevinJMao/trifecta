@@ -153,7 +153,7 @@ class TrifectaShell(rt: DefaultRuntimeContext) {
  */
 object TrifectaShell {
   private val logger = LoggerFactory.getLogger(getClass)
-  val VERSION = "0.18.3"
+  val VERSION = "0.18.5"
 
   /**
    * Application entry point

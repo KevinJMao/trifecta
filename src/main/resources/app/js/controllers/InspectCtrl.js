@@ -1,5 +1,5 @@
 /**
- * Trifecta Inspect Controller
+ * Inspect Controller
  * @author Lawrence Daniels <lawrence.daniels@gmail.com>
  */
 (function () {
@@ -7,59 +7,16 @@
         .controller('InspectCtrl', ['$scope', '$interval', '$log', '$parse', '$timeout', 'MessageSvc', 'MessageSearchSvc', 'TopicSvc',
             function ($scope, $interval, $log, $parse, $timeout, MessageSvc, MessageSearchSvc, TopicSvc) {
 
-                var _lastGoodResult = "";
-
-                $scope.version = "0.18.3";
                 $scope.hideEmptyTopics = true;
                 $scope.replicas = [];
                 $scope.topics = [];
                 $scope.topic = null;
                 $scope.loading = 0;
+                $scope.message = {};
 
                 $scope.displayMode = {
-                    "state" : "message"
-                };
-
-                $scope.tabs = [
-                    {
-                        "name": "Observe",
-                        "imageURL": "/app/images/tabs/main/observe.png",
-                        "active": false
-                    }, {
-                        "name": "Inspect",
-                        "imageURL": "/app/images/tabs/main/inspect.png",
-                        "active": false
-                    }, {
-                        "name": "Query",
-                        "imageURL": "/app/images/tabs/main/query.png",
-                        "active": false
-                    }, {
-                        "name": "Decoders",
-                        "imageURL": "/app/images/tabs/main/decoders.png",
-                        "active": false
-                    }
-                ];
-
-                // select the default tab and make it active
-                $scope.tab = $scope.tabs[0];
-                $scope.tab.active = true;
-
-                /**
-                 * Changes the active tab
-                 * @param index the given tab index
-                 * @param event the given click event
-                 */
-                $scope.changeTab = function (index, event) {
-                    // deactivate the current tab
-                    $scope.tab.active = false;
-
-                    // activate the new tab
-                    $scope.tab = $scope.tabs[index];
-                    $scope.tab.active = true;
-
-                    if (event) {
-                        event.preventDefault();
-                    }
+                    "state" : "message",
+                    "avro" : "json"
                 };
 
                 $scope.clearMessage = function() {
@@ -85,33 +42,61 @@
                     alert("Not yet implemented");
                 };
 
+                /**
+                 * Retrieves message data for the given offset within the topic partition.
+                 * @param topic the given topic
+                 * @param partition the given partition
+                 * @param offset the given offset
+                 */
                 $scope.getMessageData = function (topic, partition, offset) {
                     $scope.clearMessage();
                     $scope.loading++;
+
+                    // ensure the loading animation stops
+                    var promise = $timeout(function() {
+                        $log.warn("Timeout reached for loading animation: loading = " + $scope.loading);
+                        if($scope.loading) $scope.loading--;
+                    }, 5000);
 
                     MessageSvc.getMessage(topic, partition, offset).then(
                         function (message) {
                             $scope.message = message;
                             if($scope.loading) $scope.loading--;
+                            $timeout.cancel(promise);
                         },
                         function (err) {
                             $scope.addError(err);
                             if($scope.loading) $scope.loading--;
+                            $timeout.cancel(promise);
                         });
                 };
 
+                /**
+                 * Retrieves message key for the given offset within the topic partition.
+                 * @param topic the given topic
+                 * @param partition the given partition
+                 * @param offset the given offset
+                 */
                 $scope.getMessageKey = function (topic, partition, offset) {
                     $scope.clearMessage();
                     $scope.loading++;
+
+                    // ensure the loading animation stops
+                    var promise = $timeout(function() {
+                        $log.warn("Timeout reached for loading animation: loading = " + $scope.loading);
+                        if($scope.loading) $scope.loading--;
+                    }, 5000);
 
                     MessageSvc.getMessageKey(topic, partition, offset).then(
                         function (message) {
                             $scope.message = message;
                             if($scope.loading) $scope.loading--;
+                            $timeout.cancel(promise);
                         },
                         function (err) {
                             $scope.addError(err);
                             if($scope.loading) $scope.loading--;
+                            $timeout.cancel(promise);
                         });
                 };
 
@@ -173,6 +158,13 @@
                     });
                 };
 
+                $scope.getTopicNames = function (hideEmptyTopics) {
+                    var topics = $scope.getTopics(hideEmptyTopics);
+                    return topics.map(function(t) {
+                        return t.topic;
+                    });
+                };
+
                 $scope.loadMessage = function () {
                     var topic = $scope.topic.topic;
                     var partition = $scope.partition.partition;
@@ -186,7 +178,7 @@
                             $scope.getMessageData(topic, partition, offset);
                             break;
                         default:
-                            $log.error("Unrecognized display mode (mode = " + mode + ")");
+                            $log.error("Unrecognized display mode (mode = " + $scope.displayMode.state + ")");
                     }
                 };
 
@@ -219,10 +211,10 @@
                 $scope.nextMessage = function () {
                     ensureOffset($scope.partition);
                     var offset = $scope.partition.offset;
-                    if (offset < 1 + $scope.partition.endOffset) {
+                    if (offset < $scope.partition.endOffset) {
                         $scope.partition.offset += 1;
-                        $scope.loadMessage();
                     }
+                    $scope.loadMessage();
                 };
 
                 $scope.previousMessage = function () {
@@ -230,8 +222,8 @@
                     var offset = $scope.partition.offset;
                     if (offset && offset > $scope.partition.startOffset) {
                         $scope.partition.offset -= 1;
-                        $scope.loadMessage();
                     }
+                    $scope.loadMessage();
                 };
 
                 $scope.resetMessageState = function(mode, topic, partition, offset) {
@@ -257,8 +249,12 @@
                         $scope.partition = partition;
                         $scope.partition.offset = offset;
                         $scope.loadMessage();
-                        $scope.changeTab(1, null); // Query
+                        $scope.changeTab(0, null); // Inspect
                     }
+                };
+
+                $scope.toggleAvroOutput = function() {
+                    $scope.displayMode.avro = $scope.displayMode.avro == 'json' ? 'avro' : 'json';
                 };
 
                 /**
@@ -272,14 +268,11 @@
                     try {
                         obj = $parse(objStr)({});
                     } catch (e) {
+                        //$scope.addErrorMessage("Error parsing JSON document");
                         $log.error(e);
-                        return _lastGoodResult;
+                        return "";
                     }
-
-                    var result = JSON.stringify(obj, null, Number(tabWidth));
-                    _lastGoodResult = result;
-
-                    return result;
+                    return JSON.stringify(obj, null, Number(tabWidth));
                 };
 
                 $scope.updatePartition = function (partition) {
@@ -289,12 +282,7 @@
                     ensureOffset(partition);
 
                     // load the first message
-                    if ($scope.topic.totalMessages > 0 && $scope.partition.offset) {
-                        $scope.loadMessage();
-                    }
-                    else {
-                        $scope.clearMessage();
-                    }
+                    $scope.loadMessage();
                 };
 
                 $scope.updateTopic = function (topic) {
@@ -306,9 +294,17 @@
                         $scope.getReplicas(myTopicName);
                     }
 
-                    var partitions = topic != null ? topic.partitions : null;
+                    var partitions = topic ? topic.partitions : null;
                     if (partitions) {
-                        $scope.updatePartition(partitions[0]);
+                        var partition = partitions[0];
+                        $scope.updatePartition(partition);
+
+                        $log.info("topic = " + ( $scope.topic ? $scope.topic.topic : null ) +
+                        ", partition = " + ($scope.partition ? $scope.partition.partition : null ) +
+                        ", offset = " + ($scope.partition ? $scope.partition.offset : null ));
+
+                        // load the message
+                        //$scope.loadMessage();
                     }
                     else {
                         console.log("No partitions found");
@@ -318,8 +314,8 @@
                 };
 
                 function ensureOffset(partition) {
-                    if(!partition.offset) {
-                        partition.offset = partition.startOffset;
+                    if(partition && partition.offset == null) {
+                        partition.offset = partition.endOffset;
                     }
                 }
 
@@ -354,15 +350,15 @@
                 }
 
                 // initially, clear the message
-                $scope.clearMessage();
+               // $scope.clearMessage();
 
                 /**
                  * Watch for topic changes, and when one occurs:
                  * 1. select the first non-empty topic
                  * 2. load the replicas for the topic
                  */
-                $scope.$watch("Topics.topics", function(newTopics, oldTopics) {
-                    $log.info("DashboardCtrl: Loaded new topics (" + newTopics.length + ")");
+                $scope.$watch("TopicSvc.topics", function(newTopics, oldTopics) {
+                    $log.info("Loaded new topics (" + newTopics.length + ")");
                     $scope.topics = newTopics;
 
                     var myTopic = findNonEmptyTopic($scope.topics);

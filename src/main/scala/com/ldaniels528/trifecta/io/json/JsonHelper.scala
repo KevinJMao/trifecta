@@ -12,6 +12,10 @@ import scala.util.{Failure, Success, Try}
 object JsonHelper {
   implicit val formats = DefaultFormats
 
+  def isJson(jsString: String): Boolean = Try(parse(jsString)).isSuccess
+
+  def decompose(value: Any): JValue = Extraction.decompose(value)
+
   /**
    * Re-formats the given JSON string as a "pretty" version of the JSON string
    * @param jsonString the given JSON string
@@ -43,5 +47,7 @@ object JsonHelper {
   def toJson[T](results: Seq[T]): JValue = Extraction.decompose(results)
 
   def makeCompact[T](results: Seq[T]): String = compact(render(Extraction.decompose(results)))
+
+  def makeCompact(jsString: String): String = compact(render(parse(jsString)))
 
 }

@@ -1,5 +1,5 @@
 /**
- * Queries Controller
+ * Query Controller
  * @author Lawrence Daniels <lawrence.daniels@gmail.com>
  */
 (function () {
@@ -17,6 +17,10 @@
             // create the query state object
             $scope.state = createNewQueryState();
 
+            /**
+             * Creates a new query state object
+             * @returns {{running: boolean, results: null, mappings: null, ascending: boolean, sortField: null}}
+             */
             function createNewQueryState() {
                 return {
                     "running": false,
@@ -42,8 +46,7 @@
                         $scope.savedQuery = $scope.savedQueries[0];
                     },
                     function(err) {
-                        setError(err);
-
+                        $scope.addError(err);
                         $scope.savedQueries.push(newQueryScript());
                         $scope.savedQuery = $scope.savedQueries[0];
                     });
@@ -58,7 +61,7 @@
                         $log.info("response = " + angular.toJson(response));
                     },
                     function(err) {
-                        setError(err)
+                        $scope.addError(err);
                     }
                 );
             };
@@ -141,7 +144,7 @@
                     function (err) {
                         $scope.state.running = false;
                         mySavedQuery.loading = false;
-                        setError(err);
+                        $scope.addError(err);
                     }
                 );
             };
@@ -200,7 +203,7 @@
                         },
                         function (err) {
                             query.syncing = false;
-                            setError(err);
+                            $scope.addError(err);
                         }
                     );
                 }

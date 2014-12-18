@@ -5,6 +5,7 @@
 a { cursor: pointer }
 
 body {
+    min-width: 900px;
     margin-left: 25px;
     margin-right: 25px;
 }
@@ -106,6 +107,12 @@ th { text-align: left }
 .tab_inactive {
     padding: 4px 4px 4px 4px;
     vertical-align: middle;
+}
+
+.title_border {
+    border-top: 1px solid #cccccc;
+    border-left: 1px solid #cccccc;
+    border-right: 1px solid #cccccc;
 }
 
 .title1 { color: #f00000 }
