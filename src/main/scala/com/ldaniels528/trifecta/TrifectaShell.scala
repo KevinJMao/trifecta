@@ -135,7 +135,7 @@ class TrifectaShell(rt: TxRuntimeContext) {
    * @return true, if the line of execution is ineligible for addition into the session history
    */
   private def ineligibleHistory(line: String): Boolean = {
-    line.startsWith("history") || line.startsWith("!") || SessionManagement.history.last.contains(line)
+    line.startsWith("history") || line.startsWith("!") || SessionManagement.history.last.exists(_ == line)
   }
 
   private def getErrorMessage(t: Throwable): String = {
